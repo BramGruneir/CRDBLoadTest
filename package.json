@@ -1,0 +1,32 @@
+{
+    "name": "crdbloadtest",
+    "version": "1.0.0",
+    "description": "Simple Test to load data into CockroachDB",
+    "main": "src/index.js",
+    "scripts": {
+        "watch": "tsc -w",
+        "start": "tsc && node src/index.js",
+        "typeorm": "./node_modules/.bin/typeorm"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/BramGruneir/CRDBLoadTest.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/BramGruneir/CRDBLoadTest/issues"
+    },
+    "homepage": "https://github.com/BramGruneir/CRDBLoadTest#readme",
+    "dependencies": {
+        "pg": "^8.7.3",
+        "ts-node": "^10.9.1",
+        "typeorm": "^0.3.7"
+    },
+    "devDependencies": {
+        "@types/node": "^18.6.1",
+        "tslib": "^2.4.0",
+        "typescript": "^4.7.4"
+    }
+}

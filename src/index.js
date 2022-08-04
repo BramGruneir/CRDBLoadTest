@@ -15,32 +15,27 @@ const datasource_1 = require("./datasource");
 const typeorm_1 = require("typeorm");
 const crypto_1 = require("crypto");
 // Test Settings
-const count = 10000;
+const totalItems = 10000;
 const bucket = 100;
 const feedbackCount = 1000;
 // Retry Settings
-const retryCount = 10;
-const retryBackoffInterval = 100; // milliseconds
-const valuesDetails = {
-    a: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    b: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    c: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-};
-const values = new Array;
-const buckets = new Array;
+const retryMaxCount = 10;
+const retryBackoffInterval = 1; // milliseconds
+const retryMaxBackoff = 10000; // milliseconds
 function retry(fn) {
     return __awaiter(this, void 0, void 0, function* () {
-        let count = 0;
+        let retryCount = 0;
         while (true) {
             try {
                 return yield fn();
             }
             catch (error) {
                 if ((error instanceof typeorm_1.QueryFailedError) && ((error.driverError.code == 'CR000') || (error.driverError.code == '40001'))) {
-                    count++;
-                    if (count < retryCount) {
-                        console.log(`retrying query - retry count of ${count}`);
-                        yield new Promise((r) => setTimeout(r, count * retryBackoffInterval));
+                    retryCount++;
+                    if (retryCount < retryMaxCount) {
+                        let backoff = Math.min(retryMaxBackoff, retryBackoffInterval * Math.pow(2, retryCount - 1));
+                        console.log(`retrying query - retry count of ${retryCount} after a delay of ${backoff}ms`);
+                        yield new Promise((r) => setTimeout(r, backoff));
                         continue;
                     }
                     console.log(`retry total count of ${retryCount} has been exceeded, not retrying`);
@@ -51,10 +46,17 @@ function retry(fn) {
         }
     });
 }
+const valuesDetails = {
+    a: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    b: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    c: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+};
+const values = new Array;
+const buckets = new Array;
 function generateItems() {
-    console.log(`generating ${count} items`);
+    console.log(`generating ${totalItems} items`);
     console.time("generating items");
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < totalItems; i++) {
         let item = new item_1.Item();
         item.id = (0, crypto_1.randomUUID)();
         item.a = valuesDetails.a;
@@ -62,12 +64,12 @@ function generateItems() {
         item.c = valuesDetails.c;
         values.push(item);
     }
-    for (let i = 0; i < count; i += bucket) {
-        if (i + bucket < count) {
+    for (let i = 0; i < totalItems; i += bucket) {
+        if (i + bucket < totalItems) {
             buckets.push(values.slice(i, i + bucket));
         }
         else {
-            buckets.push(values.slice(i, count));
+            buckets.push(values.slice(i, totalItems));
         }
     }
     console.timeEnd("generating items");
@@ -99,30 +101,30 @@ function transactionBuilder(rep, items) {
 }
 function insertSerialized(rep) {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log(`*** TEST *** INSERT ${count} items - serialized`);
+        console.log(`*** TEST *** INSERT ${totalItems} items - serialized`);
         yield rep.clear();
         console.time("serialized");
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < totalItems; i++) {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             yield retry(() => rep.upsert([values[i]], ["id"]));
         }
         console.timeEnd("serialized");
         yield rep.clear();
         console.time("serialized - query builder");
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < totalItems; i++) {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             yield retry(() => queryBuilder(rep, [values[i]]).execute());
         }
         console.timeEnd("serialized - query builder");
         yield rep.clear();
         console.time("serialized - transaction");
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < totalItems; i++) {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             yield retry(() => transactionBuilder(rep, [values[i]])());
         }
@@ -131,12 +133,12 @@ function insertSerialized(rep) {
 }
 function insertParallelized(rep) {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log(`*** TEST *** INSERT ${count} items - parallelized`);
+        console.log(`*** TEST *** INSERT ${totalItems} items - parallelized`);
         yield rep.clear();
         console.time("parallelized");
         yield Promise.all(values.map((item, i) => __awaiter(this, void 0, void 0, function* () {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             return retry(() => rep.upsert([item], ["id"]));
         })));
@@ -144,7 +146,7 @@ function insertParallelized(rep) {
         console.time("parallelized - query builder");
         yield Promise.all(values.map((item, i) => __awaiter(this, void 0, void 0, function* () {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             return retry(() => queryBuilder(rep, [item]).execute());
         })));
@@ -152,7 +154,7 @@ function insertParallelized(rep) {
         console.time("parallelized - transaction");
         yield Promise.all(values.map((item, i) => __awaiter(this, void 0, void 0, function* () {
             if ((i + 1) % feedbackCount === 0) {
-                console.log(`${i + 1}/${count} inserted`);
+                console.log(`${i + 1}/${totalItems} inserted`);
             }
             return retry(() => transactionBuilder(rep, [item])());
         })));
@@ -161,12 +163,12 @@ function insertParallelized(rep) {
 }
 function insertBulkSerialized(rep) {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log(`*** TEST *** INSERT ${count} items - in buckets of ${bucket} serialized`);
+        console.log(`*** TEST *** INSERT ${totalItems} items - in buckets of ${bucket} serialized`);
         yield rep.clear();
         console.time("bulk serialized");
         for (let i = 0; i < buckets.length; i++) {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             yield retry(() => rep.upsert(buckets[i], ["id"]));
         }
@@ -174,7 +176,7 @@ function insertBulkSerialized(rep) {
         console.time("bulk serialized - query builder");
         for (let i = 0; i < buckets.length; i++) {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             yield retry(() => queryBuilder(rep, buckets[i]).execute());
         }
@@ -182,7 +184,7 @@ function insertBulkSerialized(rep) {
         console.time("bulk serialized - transaction");
         for (let i = 0; i < buckets.length; i++) {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             yield retry(() => transactionBuilder(rep, buckets[i])());
         }
@@ -191,12 +193,12 @@ function insertBulkSerialized(rep) {
 }
 function insertBulkParallelized(rep) {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log(`*** TEST *** INSERT ${count} items - in buckets of ${bucket} parallelized`);
+        console.log(`*** TEST *** INSERT ${totalItems} items - in buckets of ${bucket} parallelized`);
         yield rep.clear();
         console.time("bulk parallelized");
         yield Promise.all(buckets.map((b, i) => __awaiter(this, void 0, void 0, function* () {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             retry(() => rep.upsert(b, ["id"]));
         })));
@@ -204,7 +206,7 @@ function insertBulkParallelized(rep) {
         console.time("bulk parallelized - query builder");
         yield Promise.all(buckets.map((b, i) => __awaiter(this, void 0, void 0, function* () {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             retry(() => queryBuilder(rep, b).execute());
         })));
@@ -212,7 +214,7 @@ function insertBulkParallelized(rep) {
         console.time("bulk parallelized - transaction");
         yield Promise.all(buckets.map((b, i) => __awaiter(this, void 0, void 0, function* () {
             if (((i + 1) * bucket) % feedbackCount == 0) {
-                console.log(`${(i + 1) * bucket}/${count} inserted`);
+                console.log(`${(i + 1) * bucket}/${totalItems} inserted`);
             }
             retry(() => transactionBuilder(rep, b)());
         })));
@@ -221,7 +223,7 @@ function insertBulkParallelized(rep) {
 }
 function testRetryableError() {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log(`*** TEST *** Testing Retry Logic - should fail after ${retryCount} tries`);
+        console.log(`*** TEST *** Testing Retry Logic - should fail after ${retryMaxCount} tries`);
         let retried = 0;
         try {
             yield retry(() => __awaiter(this, void 0, void 0, function* () {
@@ -248,10 +250,10 @@ function testRetryableError() {
         catch (err) {
             // do nothing
         }
-        if (retried != retryCount) {
-            throw new Error(`transaction was not retried ${retryCount} times, got ${retried}`);
+        if (retried != retryMaxCount) {
+            throw new Error(`transaction was not retried ${retryMaxCount} times, got ${retried}`);
         }
-        console.log(`*** TEST *** Testing Retry Logic - pass after ${retryCount - 1} tries`);
+        console.log(`*** TEST *** Testing Retry Logic - pass after ${retryMaxCount - 1} tries`);
         retried = 0;
         try {
             yield retry(() => __awaiter(this, void 0, void 0, function* () {
@@ -260,7 +262,7 @@ function testRetryableError() {
                 // This only worked when inside a transaction.
                 try {
                     yield queryRunner.startTransaction();
-                    let shouldRetry = (retried < retryCount - 1);
+                    let shouldRetry = (retried < retryMaxCount - 1);
                     // This setting seems to stick around, only works to explicitly remove it.
                     yield queryRunner.manager.query(`SET inject_retry_errors_enabled = '${shouldRetry}'`);
                     yield queryRunner.manager.query(`SELECT now()`);
@@ -281,8 +283,8 @@ function testRetryableError() {
         catch (err) {
             // do nothing
         }
-        if (retried != retryCount - 1) {
-            throw new Error(`transaction was not retried ${retryCount - 1} times, got ${retried}`);
+        if (retried != retryMaxCount - 1) {
+            throw new Error(`transaction was not retried ${retryMaxCount - 1} times, got ${retried}`);
         }
     });
 }
